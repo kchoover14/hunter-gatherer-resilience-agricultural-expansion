@@ -296,16 +296,16 @@ dixon_q = function(vals, ref) {
 # run_me_dixon -----------------------------------------------------------
 run_me_dixon = function(df, trait_cols, grp, grp_cols = group_cols) {
   # Step 2 ME outlier detection using Dixon's test.
-  # Detects individuals whose replicate-to-replicate consistency in side
-  # differences is extreme relative to the group.
   #
   # For each individual x trait x group:
-  #   1. Computes |R-L| for each replicate (one absolute side difference per rep).
-  #   2. Computes consecutive differences between those |R-L| values across
-  #      replicates -- measures how much the side difference varies between
-  #      replicate pairs.
-  #   3. Runs Dixon's two-tailed test on those consecutive replicate differences
-  #      against the group mean AND against zero.
+  #   1. Computes consecutive differences of raw measurements within each
+  #      side (measurement2-measurement1, measurement3-measurement2, etc.),
+  #      each side computed separately.
+  #   2. Pools all consecutive differences across all individuals and both
+  #      sides. N = total pool size (individuals x sides x replicate pairs).
+  #   3. Tests each consecutive difference against the pool mean AND against
+  #      zero. Dixon's test for N <= 25; Grubbs (t-approximation) for N > 25.
+  #      Both two-tailed.
   # Bonferroni correction applied within each group separately.
   #
   # Arguments:
@@ -328,81 +328,135 @@ run_me_dixon = function(df, trait_cols, grp, grp_cols = group_cols) {
     trait_df[[col_replicate]] = as.integer(as.character(trait_df[[col_replicate]]))
 
     inds = unique(trait_df[[col_individual]])
-    ind_sd_list = list()
-    for (ind in inds) {
-      sub  = trait_df[trait_df[[col_individual]] == ind, ]
-      reps = sort(unique(sub[[col_replicate]]))
-      sd_vals = vapply(reps, function(r) {
-        r_val = sub$Value[sub[[col_replicate]] == r & sub[[col_side]] == col_side_right]
-        l_val = sub$Value[sub[[col_replicate]] == r & sub[[col_side]] == col_side_left]
-        if (length(r_val) == 1 && length(l_val) == 1 &&
-            !is.na(r_val) && !is.na(l_val)) {
-          abs(r_val - l_val)
-        } else {
-          NA_real_
-        }
-      }, numeric(1))
-      names(sd_vals) = reps
-      ind_sd_list[[as.character(ind)]] = sd_vals
+
+    # Check replicate consistency -- use most common replicate count
+    rep_counts = sapply(inds, function(ind) {
+      sub = trait_df[trait_df[[col_individual]] == ind, ]
+      min(sapply(c(col_side_right, col_side_left), function(s) {
+        length(unique(sub[[col_replicate]][sub[[col_side]] == s]))
+      }))
+    })
+    common_reps = as.numeric(names(sort(table(rep_counts), decreasing = TRUE))[1])
+    if (common_reps < 2) {
+      cat("  Skipping -- insufficient replicates (common count:", common_reps, ")\n")
+      next
+    }
+    valid_inds    = inds[rep_counts == common_reps]
+    excluded_inds = inds[rep_counts != common_reps]
+    if (length(excluded_inds) > 0) {
+      cat("  Excluded individuals with mismatched replicates:",
+          paste(excluded_inds, collapse = ", "), "\n")
     }
 
-    all_consec = unlist(lapply(ind_sd_list, function(x) {
-      x_clean = x[!is.na(x)]
-      if (length(x_clean) >= 2) consec_diffs(x_clean) else numeric(0)
-    }))
-    group_mean = mean(all_consec, na.rm = TRUE)
-    group_sd   = sd(all_consec,   na.rm = TRUE)
-    cat(sprintf("  Group mean consec diff: %.6f  SD: %.6f  n: %d\n",
-                group_mean, group_sd, length(all_consec)))
+    # Build pool: consecutive differences of raw measurements within each
+    # side across all valid individuals
+    all_consec      = c()
+    ind_consec_list = list()
 
-    for (ind in inds) {
-      sd_vals  = ind_sd_list[[as.character(ind)]]
-      sd_clean = sd_vals[!is.na(sd_vals)]
-      if (length(sd_clean) < 2) next
-      cd = consec_diffs(sd_clean)
-      if (length(cd) < 3) next
+    for (ind in valid_inds) {
+      sub        = trait_df[trait_df[[col_individual]] == ind, ]
+      ind_consec = c()
 
-      res_mean = dixon_q(cd, ref = group_mean)
-      res_zero = dixon_q(cd, ref = 0)
+      for (s in c(col_side_right, col_side_left)) {
+        sub_s = sub[sub[[col_side]] == s, ]
+        reps  = sort(unique(sub_s[[col_replicate]]))[1:common_reps]
+        vals_by_rep = sapply(reps, function(r) {
+          v_rep = sub_s$Value[sub_s[[col_replicate]] == r]
+          if (length(v_rep) == 1) v_rep else NA_real_
+        })
+        if (any(is.na(vals_by_rep))) next
+        ind_consec = c(ind_consec, diff(vals_by_rep))
+      }
 
-      row = as.data.frame(grp_vals, stringsAsFactors = FALSE)
-      row$trait       = v
-      row[[col_individual]] = as.character(ind)
-      row$n_consec    = length(cd)
-      row$group_mean  = group_mean
-      row$group_sd    = group_sd
-      row$extreme_val = res_mean$extreme_val
-      row$direction   = res_mean$direction
-      row$Q_vs_mean   = res_mean$Q
-      row$p_vs_mean   = res_mean$p
-      row$Q_vs_zero   = res_zero$Q
-      row$p_vs_zero   = res_zero$p
-      rows[[length(rows) + 1]] = row
+      if (length(ind_consec) > 0) {
+        ind_consec_list[[as.character(ind)]] = ind_consec
+        all_consec = c(all_consec, ind_consec)
+      }
+    }
+
+    n_pool = length(all_consec)
+    if (n_pool < 3) {
+      cat("  Skipping -- fewer than 3 consecutive differences in pool\n")
+      next
+    }
+    group_mean = mean(all_consec)
+    group_sd   = sd(all_consec)
+    test_name  = ifelse(n_pool <= 25, "dixon", "grubbs")
+    cat(sprintf("  n pool: %d  mean consec diff: %.6f  SD: %.6f  test: %s\n",
+                n_pool, group_mean, group_sd, test_name))
+
+    # Test each individual's consecutive differences against the pool
+    for (ind in names(ind_consec_list)) {
+      cd = ind_consec_list[[ind]]
+
+      for (i in seq_along(cd)) {
+        xi = cd[i]
+
+        if (test_name == "dixon") {
+          p_mean = tryCatch(
+            outliers::dixon.test(all_consec, type = 0,
+                                 opposite  = (xi < group_mean),
+                                 two.sided = TRUE)$p.value,
+            error = function(e) NA_real_)
+          p_zero = tryCatch(
+            outliers::dixon.test(all_consec, type = 0,
+                                 opposite  = (xi < 0),
+                                 two.sided = TRUE)$p.value,
+            error = function(e) NA_real_)
+        } else {
+          tg_mean = if (group_sd > 0) (xi - group_mean) / group_sd else NA_real_
+          tg_zero = if (group_sd > 0) xi / group_sd else NA_real_
+          df_g    = n_pool - 2
+          t2_mean = tg_mean^2 * (n_pool - 1) / (n_pool - tg_mean^2)
+          t2_zero = tg_zero^2 * (n_pool - 1) / (n_pool - tg_zero^2)
+          p_mean  = if (!is.na(t2_mean) && !is.nan(t2_mean) && t2_mean >= 0) 2 * pt(-sqrt(t2_mean), df = df_g) else NA_real_
+          p_zero  = if (!is.na(t2_zero) && !is.nan(t2_zero) && t2_zero >= 0) 2 * pt(-sqrt(t2_zero), df = df_g) else NA_real_
+        }
+
+        row = as.data.frame(grp_vals, stringsAsFactors = FALSE)
+        row$trait              = v
+        row[[col_individual]]  = as.character(ind)
+        row$consec_diff_idx    = i
+        row$n_pool             = n_pool
+        row$consec_diff        = xi
+        row$group_mean         = group_mean
+        row$group_sd           = group_sd
+        row$test               = test_name
+        row$p_vs_mean          = p_mean
+        row$p_vs_zero          = p_zero
+        rows[[length(rows) + 1]] = row
+      }
     }
   }
 
   out = do.call(rbind, rows)
   if (is.null(out) || nrow(out) == 0) return(data.frame())
 
-  out = out[order(out$p_vs_mean), ]
+  out = out[order(out$p_vs_mean, na.last = TRUE), ]
   bonf_mean     = bonferroni_sorted(out$p_vs_mean)
   out$bonf_mean = bonf_mean$bonf
   out$rank_mean = bonf_mean$rank
   out$sig_mean  = bonf_mean$alpha
 
-  out = out[order(out$p_vs_zero), ]
+  out = out[order(out$p_vs_zero, na.last = TRUE), ]
   bonf_zero     = bonferroni_sorted(out$p_vs_zero)
   out$bonf_zero = bonf_zero$bonf
   out$rank_zero = bonf_zero$rank
   out$sig_zero  = bonf_zero$alpha
 
-  out = out[order(out[[grp_cols[1]]], out$trait, out[[col_individual]]), ]
+  out = out[order(out[[grp_cols[1]]], out$trait, out[[col_individual]], out$consec_diff_idx), ]
   rownames(out) = NULL
 
-  print_cols = c(grp_cols, "trait", col_individual, "n_consec", "group_mean",
-                 "extreme_val", "Q_vs_mean", "p_vs_mean", "sig_mean",
-                 "Q_vs_zero", "p_vs_zero", "sig_zero")
-  print(out[, intersect(print_cols, names(out))])
+  flagged = out[!is.na(out$sig_mean) & (out$sig_mean == "*" | out$sig_zero == "*"), ]
+  print_cols = c(grp_cols, "trait", col_individual, "consec_diff_idx",
+                 "n_pool", "consec_diff", "group_mean", "test",
+                 "p_vs_mean", "sig_mean", "p_vs_zero", "sig_zero")
+  if (nrow(flagged) > 0) {
+    cat("\nFlagged consecutive differences:\n")
+    print(flagged[, intersect(print_cols, names(flagged))])
+  } else {
+    cat("\nNo flagged consecutive differences.\n")
+  }
   out
 }
 
@@ -415,8 +469,10 @@ run_fa_dixon = function(df, trait_cols, grp, grp_cols = group_cols) {
   #
   # For each individual x trait x group:
   #   Computes signed R-L for each replicate (one side difference per rep).
-  #   Runs Dixon's two-tailed test on those signed R-L values against the
-  #   group mean R-L AND against zero.
+  #   Pools those signed R-L values across all individuals in the group.
+  #   Tests the individual's most extreme replicate value against the pool
+  #   mean R-L AND against zero. Dixon's test for N <= 25; Grubbs
+  #   (t-approximation) for N > 25. Both two-tailed.
   # Bonferroni correction applied within each group separately.
   #
   # Arguments:
@@ -458,31 +514,51 @@ run_fa_dixon = function(df, trait_cols, grp, grp_cols = group_cols) {
     }
 
     all_rl     = unlist(lapply(ind_rl_list, function(x) x[!is.na(x)]))
+    n_pool     = length(all_rl)
     group_mean = mean(all_rl, na.rm = TRUE)
     group_sd   = sd(all_rl,   na.rm = TRUE)
-    cat(sprintf("  Group mean R-L: %.6f  SD: %.6f  n: %d\n",
-                group_mean, group_sd, length(all_rl)))
+    test_name  = ifelse(n_pool <= 25, "dixon", "grubbs")
+    cat(sprintf("  Group mean R-L: %.6f  SD: %.6f  n pool: %d  test: %s\n",
+                group_mean, group_sd, n_pool, test_name))
 
     for (ind in inds) {
       rl_vals  = ind_rl_list[[as.character(ind)]]
       rl_clean = rl_vals[!is.na(rl_vals)]
-      if (length(rl_clean) < 3) next
+      if (length(rl_clean) < 2) next
 
-      res_mean = dixon_q(rl_clean, ref = group_mean)
-      res_zero = dixon_q(rl_clean, ref = 0)
+      xi_mean = rl_clean[which.max(abs(rl_clean - group_mean))]
+      xi_zero = rl_clean[which.max(abs(rl_clean))]
+
+      if (test_name == "dixon") {
+        p_mean = tryCatch(
+          outliers::dixon.test(all_rl, type = 0,
+                               opposite  = (xi_mean < group_mean),
+                               two.sided = TRUE)$p.value,
+          error = function(e) NA_real_)
+        p_zero = tryCatch(
+          outliers::dixon.test(all_rl, type = 0,
+                               opposite  = (xi_zero < 0),
+                               two.sided = TRUE)$p.value,
+          error = function(e) NA_real_)
+      } else {
+        tg_mean = if (group_sd > 0) (xi_mean - group_mean) / group_sd else NA_real_
+        tg_zero = if (group_sd > 0) xi_zero / group_sd else NA_real_
+        df_g    = n_pool - 2
+        t2_mean = tg_mean^2 * (n_pool - 1) / (n_pool - tg_mean^2)
+        t2_zero = tg_zero^2 * (n_pool - 1) / (n_pool - tg_zero^2)
+        p_mean  = if (!is.na(t2_mean) && !is.nan(t2_mean) && t2_mean >= 0) 2 * pt(-sqrt(t2_mean), df = df_g) else NA_real_
+        p_zero  = if (!is.na(t2_zero) && !is.nan(t2_zero) && t2_zero >= 0) 2 * pt(-sqrt(t2_zero), df = df_g) else NA_real_
+      }
 
       row = as.data.frame(grp_vals, stringsAsFactors = FALSE)
-      row$trait       = v
-      row[[col_individual]] = as.character(ind)
-      row$n_reps      = length(rl_clean)
-      row$group_mean  = group_mean
-      row$group_sd    = group_sd
-      row$extreme_val = res_mean$extreme_val
-      row$direction   = res_mean$direction
-      row$Q_vs_mean   = res_mean$Q
-      row$p_vs_mean   = res_mean$p
-      row$Q_vs_zero   = res_zero$Q
-      row$p_vs_zero   = res_zero$p
+      row$trait              = v
+      row[[col_individual]]  = as.character(ind)
+      row$n_pool              = n_pool
+      row$group_mean          = group_mean
+      row$group_sd            = group_sd
+      row$extreme_val         = xi_mean
+      row$p_vs_mean           = p_mean
+      row$p_vs_zero           = p_zero
       rows[[length(rows) + 1]] = row
     }
   }
@@ -505,10 +581,16 @@ run_fa_dixon = function(df, trait_cols, grp, grp_cols = group_cols) {
   out = out[order(out[[grp_cols[1]]], out$trait, out[[col_individual]]), ]
   rownames(out) = NULL
 
-  print_cols = c(grp_cols, "trait", col_individual, "n_reps", "group_mean",
-                 "extreme_val", "Q_vs_mean", "p_vs_mean", "sig_mean",
-                 "Q_vs_zero", "p_vs_zero", "sig_zero")
-  print(out[, intersect(print_cols, names(out))])
+  flagged = out[!is.na(out$sig_mean) & (out$sig_mean == "*" | out$sig_zero == "*"), ]
+  print_cols = c(grp_cols, "trait", col_individual, "n_pool", "group_mean",
+                 "extreme_val", "p_vs_mean", "sig_mean",
+                 "p_vs_zero", "sig_zero")
+  if (nrow(flagged) > 0) {
+    cat("\nFlagged individuals:\n")
+    print(flagged[, intersect(print_cols, names(flagged))])
+  } else {
+    cat("\nNo flagged individuals.\n")
+  }
   out
 }
 
@@ -530,7 +612,8 @@ diagnose_fa_flagged = function(dixon_out, raw_groups, grp_cols = group_cols) {
   #   grp_cols   -- character vector of grouping column names (default: group_cols)
   #
   # Returns: dataframe with one row per replicate per flagged individual x trait
-  flagged = dixon_out[dixon_out$sig_mean == "*" | dixon_out$sig_zero == "*", ]
+  flagged = dixon_out[!is.na(dixon_out$sig_mean) &
+                        (dixon_out$sig_mean == "*" | dixon_out$sig_zero == "*"), ]
   if (nrow(flagged) == 0) {
     cat("No flagged cases to diagnose.\n")
     return(data.frame())
@@ -592,21 +675,28 @@ diagnose_fa_flagged = function(dixon_out, raw_groups, grp_cols = group_cols) {
 
 # diagnose_me_flagged ----------------------------------------------------
 diagnose_me_flagged = function(dixon_out, raw_groups, grp_cols = group_cols) {
-  # For each flagged individual x trait from run_me_dixon, computes |R-L|
-  # values and consecutive pair differences with replicate pair labels,
-  # and identifies which pair produced the extreme value.
+  # For each flagged individual x trait from run_me_dixon, computes
+  # consecutive differences of raw measurements within each side and
+  # identifies which replicate pair is driving the flag.
   #
   # Arguments:
   #   dixon_out  -- dataframe returned by run_me_dixon (full output, all rows)
   #   raw_groups -- named list of long-format group dataframes, keyed by group key
   #   grp_cols   -- character vector of grouping column names (default: group_cols)
   #
-  # Returns: dataframe with one row per consecutive pair per flagged individual x trait
-  flagged = dixon_out[dixon_out$sig_mean == "*" | dixon_out$sig_zero == "*", ]
+  # Returns: dataframe with one row per consecutive pair per side per
+  #          flagged individual x trait
+  flagged = dixon_out[!is.na(dixon_out$sig_mean) &
+                        (dixon_out$sig_mean == "*" | dixon_out$sig_zero == "*"), ]
   if (nrow(flagged) == 0) {
     cat("No flagged cases to diagnose.\n")
     return(data.frame())
   }
+
+  # Deduplicate to unique individual x trait x group combinations --
+  # run_me_dixon output has one row per consecutive difference, so flagged
+  # may have multiple rows per individual x trait.
+  flagged = unique(flagged[, c(grp_cols, "trait", col_individual)])
 
   rows = list()
 
@@ -625,42 +715,42 @@ diagnose_me_flagged = function(dixon_out, raw_groups, grp_cols = group_cols) {
     sub = df[df[[col_individual]] == ind & df$Trait == trait, c(col_replicate, col_side, "Value")]
     sub = sub[!is.na(sub$Value), ]
     sub[[col_replicate]] = as.integer(as.character(sub[[col_replicate]]))
-    reps = sort(unique(sub[[col_replicate]]))
 
-    abs_rl = vapply(reps, function(r) {
-      rv = sub$Value[sub[[col_replicate]] == r & sub[[col_side]] == col_side_right]
-      lv = sub$Value[sub[[col_replicate]] == r & sub[[col_side]] == col_side_left]
-      if (length(rv) == 1 && length(lv) == 1) abs(rv - lv) else NA_real_
-    }, numeric(1))
-    names(abs_rl) = reps
-    abs_rl = abs_rl[!is.na(abs_rl)]
+    for (s in c(col_side_right, col_side_left)) {
+      sub_s = sub[sub[[col_side]] == s, ]
+      reps  = sort(unique(sub_s[[col_replicate]]))
+      if (length(reps) < 2) next
 
-    if (length(abs_rl) < 2) next
+      vals_by_rep = sapply(reps, function(r) {
+        v_rep = sub_s$Value[sub_s[[col_replicate]] == r]
+        if (length(v_rep) == 1) v_rep else NA_real_
+      })
+      if (any(is.na(vals_by_rep))) next
 
-    cd          = consec_diffs(abs_rl)
-    rep_keys    = names(abs_rl)
-    pair_labels = paste0("M", rep_keys[-1], "-M", rep_keys[-length(rep_keys)])
+      cd          = diff(vals_by_rep)
+      pair_labels = paste0("measurement", reps[-length(reps)],
+                           "-measurement", reps[-1])
 
-    for (j in seq_along(cd)) {
-      row = as.data.frame(
-        setNames(as.list(sapply(grp_cols, function(col) flagged[[col]][i])),
-                 grp_cols),
-        stringsAsFactors = FALSE)
-      row$trait       = trait
-      row[[col_individual]] = ind
-      row$pair        = pair_labels[j]
-      row$abs_rl_a    = abs_rl[j]
-      row$abs_rl_b    = abs_rl[j + 1]
-      row$consec_diff = cd[j]
-      row$is_extreme  = abs(cd[j] - flagged$group_mean[i]) ==
-        max(abs(cd - flagged$group_mean[i]))
-      rows[[length(rows) + 1]] = row
+      for (j in seq_along(cd)) {
+        row = as.data.frame(
+          setNames(as.list(sapply(grp_cols, function(col) flagged[[col]][i])),
+                   grp_cols),
+          stringsAsFactors = FALSE)
+        row$trait  = trait
+        row[[col_individual]] = ind
+        row$side   = s
+        row$pair   = pair_labels[j]
+        row$m1     = vals_by_rep[j]
+        row$m2     = vals_by_rep[j + 1]
+        row$diff   = cd[j]
+        rows[[length(rows) + 1]] = row
+      }
     }
   }
 
+  if (length(rows) == 0) return(data.frame())
   out = do.call(rbind, rows)
-  out = out[order(out[[grp_cols[1]]], out$trait, out[[col_individual]]), ]
-  out = out[order(!out$is_extreme), ]
+  out = out[order(out[[grp_cols[1]]], out$trait, out[[col_individual]], out$side), ]
   rownames(out) = NULL
   print(out)
   out

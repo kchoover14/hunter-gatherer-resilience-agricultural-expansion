@@ -154,3 +154,11 @@ tr:nth-child(even) { background-color: var(--bg); }
 
 .sidebar nav a { color: var(--primary); }
 .sidebar nav a:hover { color: var(--primary-dark); }
+
+.quarto-container {
+  max-width: 1000px !important;
+}
+
+.column-body {
+  max-width: 100% !important;
+}

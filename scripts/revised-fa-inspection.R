@@ -130,13 +130,13 @@ cat("Written:", f_checkpoint_step12, "\n")
 # sig_mean or sig_zero == "*" indicates a flagged individual x trait.
 #
 # For each flagged case:
-#   1. Run diagnose_me_flagged() below to see the consecutive replicate
-#      differences and identify which specific replicate pair is driving
-#      the flag. abs_rl_a is the lower-numbered replicate in the pair;
-#      abs_rl_b is the higher-numbered replicate.
-#   2. Compare the extreme replicate's |R-L| value to the others for
-#      that individual. If one replicate is clearly aberrant, it is the
-#      offending measurement.
+#   1. Run diagnose_me_flagged() below to see the consecutive differences
+#      of raw measurements within each side and identify which specific
+#      replicate pair is driving the flag. m1 is the lower-numbered
+#      replicate in the pair; m2 is the higher-numbered replicate.
+#   2. Compare the extreme replicate pair's raw measurements to the others
+#      for that individual and side. If one replicate is clearly aberrant,
+#      it is the offending measurement.
 #   3. Add confirmed removals to me_dixon_removals in scripts/revised-fa-inspection-constants.R.
 #      Removal unit: one specific replicate for one individual x trait.
 #
@@ -148,7 +148,7 @@ for (grp in names(group_trait_vars)) {
   raw_groups[[grp]] = g$df
 }
 me_diagnostic = diagnose_me_flagged(me_dixon_all, raw_groups)
-
+write.csv(me_diagnostic, "data/me diagnostic flagged.csv", quote=FALSE, row.names = FALSE)
 
 
 ######################## STEPS 3-5
@@ -297,7 +297,10 @@ fa_diagnostic = diagnose_fa_flagged(fa_dixon_all, raw_groups)
 # Applies all ME (Steps 1-2) and FA (Steps 3-5) replicate removals in one
 # pass. Removal is at the level of the specific offending replicate per
 # individual per trait -- not the whole individual or the whole trait.
-# Re-source scripts/revised-fa-inspection-constants.R to pick up me_dixon_removals and fa_dixon_removals.
+# me_trait_removals handles cases where the entire individual x trait is
+# removed instead -- necessary here because there are only 2 replicates,
+# so removing a single replicate would leave no usable data for that side.
+# Re-source scripts/revised-fa-inspection-constants.R to pick up all removal lists.
 
 source("scripts/revised-fa-inspection-constants.R")
 
@@ -311,6 +314,21 @@ for (entry in all_removals) {
 }
 
 cat("Replicate removals applied:", length(all_removals), "\n")
+
+# Entire individual x trait removals
+cat("Total individual x trait removals loaded:", length(me_trait_removals), "\n")
+for (entry in me_trait_removals) {
+  mask = rep(TRUE, nrow(posts5))
+  for (col in group_cols) {
+    if (!identical(entry[[col]], "all")) {
+      mask = mask & (posts5[[col]] == entry[[col]])
+    }
+  }
+  posts5$Value[mask & posts5[[col_individual]] == entry$ind & posts5$Trait == entry$trait] = NA
+}
+cat("Individual x trait removals applied:", length(me_trait_removals), "\n")
+
+posts5 = posts5 |> filter(!is.na(Value))
 write_csv(posts5, f_fromStep5)
 cat("Written:", f_fromStep5, "\n")
 
@@ -555,7 +573,7 @@ source("scripts/revised-fa-inspection-constants.R")
 
 #da_assessment = assess_da_vs_fa4a(f_fromStep6, step9_highDA)
 #write_csv(da_assessment,
-     #     sub("\\.csv", "-da-assessment.csv", f_checkpoint_step9_daTest))
+#     sub("\\.csv", "-da-assessment.csv", f_checkpoint_step9_daTest))
 # cat("Written: DA assessment\n")
 
 

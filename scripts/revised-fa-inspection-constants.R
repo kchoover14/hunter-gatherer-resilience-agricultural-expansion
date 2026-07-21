@@ -2,7 +2,7 @@
 # Update these paths to match your project directory structure.
 # All paths should be relative to your working directory.
 
-f_wrangled               = "data/revised-fa-revised-wrangled.csv"
+f_wrangled               = "data/revised-fa-wrangled.csv"
 f_checkpoint_step12      = "data/revised-fa-checkpoint-step1-2-dixon.csv"
 f_checkpoint_step345     = "data/revised-fa-checkpoint-step3-4-5-dixon.csv"
 f_fromStep5              = "data/revised-fa-fromStep5.csv"
@@ -53,17 +53,92 @@ group_trait_vars = list(
 # Populated after reviewing f_checkpoint_step12 and the ME diagnostic output.
 #
 # Removal unit: one specific replicate for one individual x trait combination.
-# Use diagnose_me_flagged() output to identify the offending replicate.
-# sig_mean or sig_zero == "*" in the checkpoint file indicates a flagged case.
-#
-# Format: one list entry per removal. ind is the uid value.
-#   Example with group_cols = c("period"):
-#     list(period = "Jomon", ind = "Wakimisaki_1", trait = "xlm3", rep = 2)
-#
-# Leave as an empty list until you have reviewed the checkpoint output.
+# NOT USED for Kyushu -- only 2 replicates per individual x trait, so
+# removing a single replicate would leave nothing usable for that side.
+# All ME removals here go through me_trait_removals (whole individual x
+# trait removal) below instead. Left as an empty list because the
+# removal block in the inspection script expects it to exist.
 
 me_dixon_removals = list(
   # list(period = "...", ind = "...", trait = "...", rep = N),
+)
+
+
+
+# 71 individual × trait combos total (69 both-flagged + 2 mean-only). Those testing positive against zero were retained as per protocol b/c they cannot be reliably excluded on statistical grounds.
+
+me_trait_removals = list(
+  list(period = "Jomon", ind = "Fukahori_2001-2", trait = "mlc"),
+  list(period = "Jomon", ind = "Fukahori_2002-2", trait = "xli1"),
+  list(period = "Jomon", ind = "Okinoharu_21", trait = "mbm1"),
+  list(period = "Jomon", ind = "Okinoharu_21", trait = "mlc"),
+  list(period = "Jomon", ind = "Okinoharu_21", trait = "mli1"),
+  list(period = "Jomon", ind = "Okinoharu_21", trait = "mlm1"),
+  list(period = "Jomon", ind = "Okinoharu_24", trait = "mbm1"),
+  list(period = "Jomon", ind = "Okinoharu_24", trait = "mlm1"),
+  list(period = "Jomon", ind = "Okinoharu_25", trait = "mbi2"),
+  list(period = "Jomon", ind = "Okinoharu_25", trait = "mbm1"),
+  list(period = "Jomon", ind = "Okinoharu_25", trait = "mbm2"),
+  list(period = "Jomon", ind = "Okinoharu_25", trait = "mbp1"),
+  list(period = "Jomon", ind = "Okinoharu_25", trait = "mlc"),
+  list(period = "Jomon", ind = "Okinoharu_25", trait = "mlm1"),
+  list(period = "Jomon", ind = "Okinoharu_25", trait = "xli1"),
+  list(period = "Jomon", ind = "Okinoharu_28", trait = "mbm1"),
+  list(period = "Jomon", ind = "Okinoharu_28", trait = "mbm2"),
+  list(period = "Jomon", ind = "Okinoharu_28", trait = "mli1"),
+  list(period = "Jomon", ind = "Okinoharu_28", trait = "mlm1"),
+  list(period = "Jomon", ind = "Okinoharu_30", trait = "mbm1"),
+  list(period = "Jomon", ind = "Okinoharu_30", trait = "mbm2"),
+  list(period = "Jomon", ind = "Okinoharu_30", trait = "mlm1"),
+  list(period = "Jomon", ind = "Saka_1", trait = "mbm2"),
+  list(period = "Jomon", ind = "Shirahama_1", trait = "mbi2"),
+  list(period = "Jomon", ind = "Shirahama_1", trait = "mbm1"),
+  list(period = "Jomon", ind = "Shirahama_1", trait = "mbp1"),
+  list(period = "Jomon", ind = "Shirahama_1", trait = "mlc"),
+  list(period = "Jomon", ind = "Shirahama_1", trait = "mlm1"),
+  list(period = "Jomon", ind = "Shirahama_1", trait = "xli1"),
+  list(period = "Jomon", ind = "Wakimisaki_1", trait = "mbm1"),
+  list(period = "Jomon", ind = "Wakimisaki_1", trait = "mbm2"),
+  list(period = "Jomon", ind = "Wakimisaki_1", trait = "mbp1"),
+  list(period = "Jomon", ind = "Wakimisaki_1", trait = "mlm1"),
+  list(period = "Jomon", ind = "Wakimisaki_1", trait = "xli1"),
+  list(period = "Jomon", ind = "Wakimisaki_2", trait = "mbm2"),
+  list(period = "Jomon", ind = "Wakimisaki_2", trait = "mlc"),
+  list(period = "Jomon", ind = "Wakimisaki_5", trait = "mbm1"),
+  list(period = "Jomon", ind = "Wakimisaki_5", trait = "mbm2"),
+  list(period = "Jomon", ind = "Wakimisaki_5", trait = "mbp1"),
+  list(period = "Jomon", ind = "Wakimisaki_5", trait = "mlc"),
+  list(period = "Jomon", ind = "Wakimisaki_5", trait = "mli1"),
+  list(period = "Jomon", ind = "Wakimisaki_5", trait = "mlm1"),
+  list(period = "Yayoi", ind = "Fukahori_10", trait = "xli1"),
+  list(period = "Yayoi", ind = "Fukahori_11", trait = "xli2"),
+  list(period = "Yayoi", ind = "Fukahori_11", trait = "xlp2"),
+  list(period = "Yayoi", ind = "Fukahori_16", trait = "xbp2"),
+  list(period = "Yayoi", ind = "Fukahori_16", trait = "xlp2"),
+  list(period = "Yayoi", ind = "Fukahori_19", trait = "xbp2"),
+  list(period = "Yayoi", ind = "Fukahori_19", trait = "xlp2"),
+  list(period = "Yayoi", ind = "Fukahori_2002-8-A", trait = "mli1"),
+  list(period = "Yayoi", ind = "Fukahori_2002-8-A", trait = "xbp2"),
+  list(period = "Yayoi", ind = "Fukahori_2002-8-A", trait = "xlp2"),
+  list(period = "Yayoi", ind = "Fukahori_4", trait = "xbp2"),
+  list(period = "Yayoi", ind = "Fukahori_4", trait = "xlp2"),
+  list(period = "Yayoi", ind = "Fukahori_6", trait = "mbp2"),
+  list(period = "Yayoi", ind = "Fukahori_6", trait = "xbp2"),
+  list(period = "Yayoi", ind = "Fukahori_6", trait = "xlp2"),
+  list(period = "Yayoi", ind = "Fukahori_Takahoko", trait = "xlp2"),
+  list(period = "Yayoi", ind = "Miyanomoto_33", trait = "mbm1"),
+  list(period = "Yayoi", ind = "Miyanomoto_35", trait = "mlp2"),
+  list(period = "Yayoi", ind = "Miyanomoto_35", trait = "xbp2"),
+  list(period = "Yayoi", ind = "Miyanomoto_35", trait = "xlp2"),
+  list(period = "Yayoi", ind = "Okinoharu_12", trait = "mbm1"),
+  list(period = "Yayoi", ind = "Okinoharu_12", trait = "xbp2"),
+  list(period = "Yayoi", ind = "Okinoharu_12", trait = "xlp2"),
+  list(period = "Yayoi", ind = "miyanomoto_14", trait = "xbp2"),
+  list(period = "Yayoi", ind = "miyanomoto_14", trait = "xlp2"),
+  list(period = "Yayoi", ind = "miyanomoto_20", trait = "xbp2"),
+  list(period = "Yayoi", ind = "miyanomoto_20", trait = "xlp2"),
+  list(period = "Yayoi", ind = "miyanomoto_36", trait = "xlp2"),
+  list(period = "Yayoi", ind = "miyanomoto_9", trait = "mlc")
 )
 
 
@@ -99,12 +174,12 @@ fa_dixon_removals = list(
 #
 # Leave as an empty list if all traits have significant FA > ME.
 
+# Jomon mbm2 is also removed as too few data for testing after prior steps
+
 step6_eliminations = list(
-  list(period = "Jomon", trait = c("mlp2", "xbm1", "xlm2", "xli2", "xbi2", "mlc", "xlp2", "mbp2", "mbm1", "mbm2", "mbp1", "mlm1", "xlp1", "xlm1", "xbp2", "xbc", "mli2", "mbc", "mli1", "mlp1", "xli1", "xbm2", "xbp1", "mbi2", "mbi1", "xlc")),
-  list(period = "Yayoi", trait = c("mlm1", "mbp1", "mbp2", "mli2", "xlc", "xlp1", "mbi2", "xlm2", "xbm2", "mbi1", "mlp1", "mbm1", "mlm2", "mlp2", "mbc", "xlp2", "xli1", "mli1", "mlc", "xbp2", "mbm2"))
+  list(period = "Jomon", trait = c("mlp2", "xbm1", "xlm2", "xli2", "xbi2", "mbp1", "xlp2", "mbp2", "mli1", "xlp1", "xlm1", "xbp2", "xbc", "mli2", "mbc", "mlp1", "mbi2", "xbm2", "xbp1", "mbi1", "xlc", "mbm2")),
+  list(period = "Yayoi", trait = c("mbp1", "mli2", "xlc", "xlp1", "mbi2", "mlp2", "xlm2", "xbm2", "mbi1", "mlp1", "xli1", "mlm2", "mbc", "mli1", "mlc", "mbm2"))
 )
-
-
 
 ######################## STEP 8: LN TRANSFORMATION (FA10a vs FA10b)
 # Populated after reviewing f_checkpoint_step8.
@@ -126,8 +201,7 @@ step6_eliminations = list(
 # Set to TRUE if any significant positive association was found; FALSE otherwise.
 # Default is FALSE (no transformation, FA10a).
 
-ln_transform = FALSE #one value with sig ts dependency removed skew/kurt
-
+# no significant values
 
 
 ######################## STEP 9: HIGH DA TRAITS (FOR DA vs FA4a ASSESSMENT)
@@ -151,6 +225,8 @@ ln_transform = FALSE #one value with sig ts dependency removed skew/kurt
 #   Example with group_cols = c("period"):
 #     list(period = "Jomon", trait = c("trait1", "trait2"))
 
+
+
 step9_highDA = list(
   # list(period = "...", trait = c("trait1", "trait2")),
 )
@@ -170,8 +246,10 @@ step9_highDA = list(
 #   Example with group_cols = c("period"):
 #     list(period = "Jomon", trait = c("trait1", "trait2"))
 
-# yayoi xli2 and xlm1 had sig kurt and xlm1 had sig skew
 
+## Kurtosis
+# Yayoi	xlm1
+# Yayoi	xli2
 step9_eliminations = list(
   list(period = "Yayoi", trait = c("xli2", "xlm1"))
 )
